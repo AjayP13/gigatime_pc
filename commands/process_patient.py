@@ -66,6 +66,7 @@ def _run_batched_inference(
     model: torch.nn.Module,
     image_tensor: torch.Tensor,
     batch_size: int,
+    threshold: float,
     image_bbox: tuple[float, float, float, float],
     whitespace_bboxes: list[dict[str, Any]],
     on_batch_processed: Callable[[int], None] | None = None,
@@ -87,7 +88,7 @@ def _run_batched_inference(
         if not batch_tiles:
             return
         batch = torch.stack(batch_tiles, dim=0)
-        pred_mask = infer_gigatime_tile(model, batch).to(torch.float32)
+        pred_mask = infer_gigatime_tile(model, batch, threshold=threshold).to(torch.float32)
 
         for idx, (y0, x0, valid_h, valid_w) in enumerate(batch_coords):
             y1 = y0 + valid_h
@@ -136,7 +137,7 @@ def _run_batched_inference(
 
     safe_den = torch.clamp(weight_accum, min=1e-6).unsqueeze(0)
     merged = accum / safe_den
-    return merged >= 0.5
+    return merged >= threshold
 
 
 def _estimate_non_whitespace_tiles(
@@ -194,11 +195,19 @@ def _estimate_non_whitespace_tiles(
     show_default=True,
     help="Device to run on: 'auto', 'cpu', 'cuda', or 'mps'.",
 )
+@click.option(
+    "--threshold",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.5,
+    show_default=True,
+    help="Binarization threshold applied to model probabilities.",
+)
 def process_patient(
     patient_folder: Path,
     repo_id: str,
     batch_size: int,
     device: str,
+    threshold: float,
 ) -> None:
     """Load the GigaTIME model prior to patient processing."""
     model = load_gigatime_model(repo_id=repo_id)
@@ -207,7 +216,7 @@ def process_patient(
 
     click.echo(
         f"Loaded GigaTIME model 'gigatime' from '{repo_id}' "
-        f"-> device={torch_device.type} dtype={dtype} batch_size={batch_size}"
+        f"-> device={torch_device.type} dtype={dtype} batch_size={batch_size} threshold={threshold}"
     )
 
     bbox_path = patient_folder / "bounding_boxes.json"
@@ -280,6 +289,7 @@ def process_patient(
                     model=model,
                     image_tensor=image_tensor,
                     batch_size=batch_size,
+                    threshold=threshold,
                     image_bbox=(x_norm, y_norm, w_norm, h_norm),
                     whitespace_bboxes=whitespace_bboxes,
                     on_batch_processed=bar.update,
@@ -289,6 +299,7 @@ def process_patient(
                 model=model,
                 image_tensor=image_tensor,
                 batch_size=batch_size,
+                threshold=threshold,
                 image_bbox=(x_norm, y_norm, w_norm, h_norm),
                 whitespace_bboxes=whitespace_bboxes,
             )
