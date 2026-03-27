@@ -1,0 +1,11 @@
+{
+  "1_1.png": {
+    "x_norm": 0.0,
+    "y_norm": 0.0,
+    "w_norm": 1.0,
+    "h_norm": 1.0,
+    "exported_pixel_width": 512,
+    "exported_pixel_height": 512,
+    "white_space_bboxes": []
+  }
+}
