@@ -202,21 +202,33 @@ def _estimate_non_whitespace_tiles(
     show_default=True,
     help="Binarization threshold applied to model probabilities.",
 )
+@click.option(
+    "--precision",
+    type=click.Choice(["auto", "float16", "float32"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="Precision to use for inference dtype.",
+)
 def process_patient(
     patient_folder: Path,
     repo_id: str,
     batch_size: int,
     device: str,
     threshold: float,
+    precision: str,
 ) -> None:
     """Load the GigaTIME model prior to patient processing."""
     model = load_gigatime_model(repo_id=repo_id)
-    torch_device, dtype = resolve_device(device)
+    try:
+        torch_device, dtype = resolve_device(device, precision_arg=precision.lower())
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
     model = model.to(torch_device, dtype=dtype)
 
     click.echo(
         f"Loaded GigaTIME model 'gigatime' from '{repo_id}' "
-        f"-> device={torch_device.type} dtype={dtype} batch_size={batch_size} threshold={threshold}"
+        f"-> device={torch_device.type} dtype={dtype} batch_size={batch_size} "
+        f"threshold={threshold} precision={precision.lower()}"
     )
 
     bbox_path = patient_folder / "bounding_boxes.json"
