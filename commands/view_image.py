@@ -6,9 +6,7 @@ from pathlib import Path
 import click
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.widgets import Button
 from PIL import Image
-from tkinter import Tk, filedialog
 
 from utils.model_utils import MODEL_OUTPUT_CHANNEL_LABELS
 from utils.npz_utils import load_bitpacked_mask_npz
@@ -90,7 +88,14 @@ class _ViewerApp:
         rows, cols = self._compute_grid(n_items)
         fig_w = max(8.0, cols * 3.2)
         fig_h = max(6.0, rows * 3.0 + 0.8)
-        self.fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h))
+        # Share axes so zoom/pan in one panel stays synchronized across channels.
+        self.fig, axes = plt.subplots(
+            rows,
+            cols,
+            figsize=(fig_w, fig_h),
+            sharex=True,
+            sharey=True,
+        )
         self.fig.canvas.manager.set_window_title("GigaTIME Image Viewer")
         self.fig.patch.set_facecolor("#1f1f1f")
         self.fig.subplots_adjust(left=0.02, right=0.98, top=0.95, bottom=0.12, wspace=0.08, hspace=0.22)
@@ -110,32 +115,10 @@ class _ViewerApp:
         for idx in range(n_items, len(axes_flat)):
             axes_flat[idx].axis("off")
 
-    def save_screenshot(self) -> None:
-        if self.fig is None:
-            return
-
-        picker_root = Tk()
-        picker_root.withdraw()
-        try:
-            target = filedialog.asksaveasfilename(
-                title="Save screenshot",
-                defaultextension=".png",
-                filetypes=[("PNG image", "*.png")],
-            )
-        finally:
-            picker_root.destroy()
-
-        if target:
-            self.fig.savefig(Path(target), dpi=200, bbox_inches="tight")
-
     def run(self) -> None:
         self._render()
         if self.fig is None:
             return
-
-        btn_ax = self.fig.add_axes([0.84, 0.02, 0.13, 0.06])
-        button = Button(btn_ax, "Screenshot")
-        button.on_clicked(lambda _event: self.save_screenshot())
         plt.show()
 
 
@@ -145,7 +128,7 @@ class _ViewerApp:
 @click.option(
     "--max-dim",
     type=int,
-    default=500,
+    default=5000,
     show_default=True,
     help="Maximum size (pixels) of the larger side for each image before layout scaling.",
 )
