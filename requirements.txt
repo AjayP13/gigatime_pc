@@ -1,0 +1,8 @@
+click
+torch
+transformers
+huggingface_hub
+numpy
+Pillow
+typing_extensions
+matplotlib
