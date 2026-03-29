@@ -4,7 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-mapfile -d '' npz_files < <(find . -type f -name "*.npz" -print0)
+npz_files=()
+while IFS= read -r -d '' file; do
+  npz_files+=("$file")
+done < <(find . -type f -name "*.npz" -print0)
 npz_count="${#npz_files[@]}"
 
 if [[ "$npz_count" -eq 0 ]]; then
