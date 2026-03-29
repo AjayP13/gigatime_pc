@@ -63,7 +63,6 @@ def load_gigatime_model(
 def infer_gigatime_tile(
     model: torch.nn.Module,
     input_image: torch.Tensor,
-    threshold: float = 0.5,
 ) -> torch.Tensor:
     """
     Run inference on a single tile (or batched tiles) sized [B,3,256,256].
@@ -71,8 +70,8 @@ def infer_gigatime_tile(
     - Puts model in eval mode
     - Uses no_grad to avoid autograd overhead
     - Moves/casts input to model's device/dtype
-    - Applies sigmoid+threshold to get a binary mask
-    - Returns boolean mask tensor of shape [B,23,256,256] on CPU
+    - Applies sigmoid to get per-channel probabilities
+    - Returns probability tensor of shape [B,23,256,256] on CPU
     """
     if input_image.ndim != 4:
         raise ValueError(f"Expected input of shape [B,3,256,256], got ndim={input_image.ndim}")
@@ -101,8 +100,6 @@ def infer_gigatime_tile(
     _, out_c, out_h, out_w = logits.shape
     if out_c != MODEL_NUM_CLASSES or out_h != 256 or out_w != 256:
         raise RuntimeError(f"Model output must be [B,23,256,256], got {tuple(logits.shape)}")
-    # Convert logits to probabilities and threshold to a boolean mask
+    # Convert logits to probabilities and keep dense confidence for downstream stitching.
     probs = torch.sigmoid(logits)
-    mask = probs > threshold
-    # Ensure mask is on CPU for downstream use/saving
-    return mask.to("cpu")
+    return probs.to("cpu")

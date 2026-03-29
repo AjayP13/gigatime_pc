@@ -16,6 +16,8 @@ Image.MAX_IMAGE_PIXELS = None
 
 TILE_SIZE = 256
 TILE_STRIDE = 128
+ALBU_DEFAULT_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+ALBU_DEFAULT_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def _compute_starts(length: int, tile_size: int, stride: int) -> list[int]:
@@ -88,13 +90,13 @@ def _run_batched_inference(
         if not batch_tiles:
             return
         batch = torch.stack(batch_tiles, dim=0)
-        pred_mask = infer_gigatime_tile(model, batch, threshold=threshold).to(torch.float32)
+        pred_probs = infer_gigatime_tile(model, batch).to(torch.float32)
 
         for idx, (y0, x0, valid_h, valid_w) in enumerate(batch_coords):
             y1 = y0 + valid_h
             x1 = x0 + valid_w
             local_weight = tile_weight[:valid_h, :valid_w]
-            accum[:, y0:y1, x0:x1] += pred_mask[idx, :, :valid_h, :valid_w] * local_weight
+            accum[:, y0:y1, x0:x1] += pred_probs[idx, :, :valid_h, :valid_w] * local_weight
             weight_accum[y0:y1, x0:x1] += local_weight
         if on_batch_processed is not None:
             on_batch_processed(1)
@@ -136,8 +138,8 @@ def _run_batched_inference(
     process_batch(pending_tiles, pending_coords)
 
     safe_den = torch.clamp(weight_accum, min=1e-6).unsqueeze(0)
-    merged = accum / safe_den
-    return merged >= threshold
+    merged_probs = accum / safe_den
+    return merged_probs >= threshold
 
 
 def _estimate_non_whitespace_tiles(
@@ -278,6 +280,8 @@ def process_patient(
         with Image.open(file_path) as img:
             rgb = img.convert("RGB")
             image_np = np.asarray(rgb, dtype=np.float32) / 255.0
+            # Match albumentations.Normalize() defaults: (x/255 - mean) / std
+            image_np = (image_np - ALBU_DEFAULT_MEAN) / ALBU_DEFAULT_STD
 
         image_h, image_w = int(image_np.shape[0]), int(image_np.shape[1])
         non_ws_tiles, total_tiles, total_batches = _estimate_non_whitespace_tiles(
