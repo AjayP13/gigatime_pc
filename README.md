@@ -7,9 +7,9 @@
 
 ./run.sh  view-image ./patient_013/1_1.png CK,DAPI,Ki67,CD8,CD3,PD-L1,CD68
 
-./run.sh  view-whole-slide ./patient_013/1_preview.png CK,DAPI,Ki67,CD8,CD3,PD-L1,CD68 --max-dim 5000
+./run.sh  view-whole-slide ./patient_013/1_preview.png CK,DAPI,Ki67,CD8,CD3,PD-L1,CD68 --max-dim 6000
 
-./run.sh  view-patient ./patient_013 CK,DAPI,Ki67,CD8,CD3,PD-L1,CD68 --max-dim 5000
+./run.sh  view-patient ./patient_013 CK,DAPI,Ki67,CD8,CD3,PD-L1,CD68 --max-dim 6000
 
 ./delete_all_npz.sh # to reset
 ```
