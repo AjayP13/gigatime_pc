@@ -2,6 +2,7 @@ import click
 
 from commands.process_patient import process_patient
 from commands.view_image import view_image
+from commands.view_patient import view_patient
 from commands.view_whole_slide import view_whole_slide
 
 
@@ -12,6 +13,7 @@ def cli() -> None:
 
 cli.add_command(process_patient)
 cli.add_command(view_image)
+cli.add_command(view_patient)
 cli.add_command(view_whole_slide)
 
 

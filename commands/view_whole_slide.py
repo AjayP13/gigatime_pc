@@ -43,6 +43,42 @@ def _safe_bbox_to_preview_pixels(
     return x0, y0, x1, y1
 
 
+def _estimate_slide_dimensions(slide_entries: list[tuple[int, str, dict[str, Any]]]) -> tuple[int, int] | None:
+    width_estimates: list[float] = []
+    height_estimates: list[float] = []
+    for _, _, bbox in slide_entries:
+        w_norm = float(bbox.get("w_norm", 0.0))
+        h_norm = float(bbox.get("h_norm", 0.0))
+        exported_w = float(bbox.get("exported_pixel_width", 0.0))
+        exported_h = float(bbox.get("exported_pixel_height", 0.0))
+        if w_norm > 0.0 and exported_w > 0.0:
+            width_estimates.append(exported_w / w_norm)
+        if h_norm > 0.0 and exported_h > 0.0:
+            height_estimates.append(exported_h / h_norm)
+
+    if not width_estimates or not height_estimates:
+        return None
+
+    est_w = int(round(float(np.median(width_estimates))))
+    est_h = int(round(float(np.median(height_estimates))))
+    return max(1, est_w), max(1, est_h)
+
+
+def _safe_bbox_to_canvas_pixels(
+    bbox: dict[str, Any], canvas_w: int, canvas_h: int
+) -> tuple[int, int, int, int]:
+    x0 = int(round(float(bbox["x_norm"]) * canvas_w))
+    y0 = int(round(float(bbox["y_norm"]) * canvas_h))
+    w = int(round(float(bbox["w_norm"]) * canvas_w))
+    h = int(round(float(bbox["h_norm"]) * canvas_h))
+
+    x0 = min(max(0, x0), canvas_w)
+    y0 = min(max(0, y0), canvas_h)
+    x1 = min(canvas_w, x0 + max(1, w))
+    y1 = min(canvas_h, y0 + max(1, h))
+    return x0, y0, x1, y1
+
+
 def _extract_index_from_name(name: str, slide_prefix: str) -> int | None:
     # Matches names like "1_3.png" for slide prefix "1".
     m = re.fullmatch(rf"{re.escape(slide_prefix)}_(\d+)\.png", name)
@@ -183,10 +219,13 @@ class _ViewerApp:
             self._update_visible_extracts_label()
 
     def run(self) -> None:
-        self._render()
+        self.render()
         if self.fig is None:
             return
         plt.show()
+
+    def render(self) -> None:
+        self._render()
 
 
 @click.command("view-whole-slide")
@@ -206,6 +245,11 @@ def view_whole_slide(preview_png_file: Path, channels: str, max_dim: int) -> Non
     The command expects a preview filename like "<slide>_preview.png" and stitches
     masks from matching "<slide>_<index>.npz" files using bounding boxes.
     """
+    app = build_whole_slide_viewer(preview_png_file, channels, max_dim)
+    app.run()
+
+
+def build_whole_slide_viewer(preview_png_file: Path, channels: str, max_dim: int) -> _ViewerApp:
     if preview_png_file.suffix.lower() != ".png":
         raise click.ClickException(f"Expected a .png file, got: {preview_png_file}")
     if not preview_png_file.name.endswith("_preview.png"):
@@ -238,11 +282,17 @@ def view_whole_slide(preview_png_file: Path, channels: str, max_dim: int) -> Non
         )
     slide_entries.sort(key=lambda item: item[0])
 
-    first_npz_path = patient_folder / f"{slide_prefix}_{slide_entries[0][0]}.npz"
-    if not first_npz_path.exists():
+    first_npz_path: Path | None = None
+    for extract_index, _, _ in slide_entries:
+        candidate = patient_folder / f"{slide_prefix}_{extract_index}.npz"
+        if candidate.exists():
+            first_npz_path = candidate
+            break
+
+    if first_npz_path is None:
         raise click.ClickException(
             "Could not determine channel count because no NPZ file exists for "
-            f"slide '{slide_prefix}'. Expected at least: {first_npz_path}"
+            f"slide '{slide_prefix}'."
         )
 
     first_npz = load_bitpacked_mask_npz(first_npz_path)
@@ -263,15 +313,26 @@ def view_whole_slide(preview_png_file: Path, channels: str, max_dim: int) -> Non
     with Image.open(preview_png_file) as img:
         preview_image = img.convert("RGB")
     preview_w, preview_h = preview_image.width, preview_image.height
+    estimated_slide_dims = _estimate_slide_dimensions(slide_entries)
+    if estimated_slide_dims is None:
+        native_w, native_h = preview_w, preview_h
+    else:
+        native_w, native_h = estimated_slide_dims
+
+    canvas_w, canvas_h = _fit_size(native_w, native_h, max_dim=max_dim)
+    if (canvas_w, canvas_h) != (preview_w, preview_h):
+        preview_for_display = preview_image.resize((canvas_w, canvas_h), resample=Image.Resampling.BILINEAR)
+    else:
+        preview_for_display = preview_image
 
     extract_boxes: list[tuple[str, tuple[int, int, int, int]]] = []
     stitched_by_channel: dict[int, np.ndarray] = {
-        idx: np.zeros((preview_h, preview_w), dtype=np.uint8) for idx, _ in channel_specs
+        idx: np.zeros((canvas_h, canvas_w), dtype=np.uint8) for idx, _ in channel_specs
     }
 
     for extract_index, image_name, bbox in slide_entries:
         npz_path = patient_folder / Path(image_name).with_suffix(".npz")
-        x0, y0, x1, y1 = _safe_bbox_to_preview_pixels(bbox, preview_w, preview_h)
+        x0, y0, x1, y1 = _safe_bbox_to_canvas_pixels(bbox, canvas_w, canvas_h)
         region_h = y1 - y0
         region_w = x1 - x0
         if region_h <= 0 or region_w <= 0:
@@ -303,12 +364,11 @@ def view_whole_slide(preview_png_file: Path, channels: str, max_dim: int) -> Non
                 resized_tile_np,
             )
 
-    images: list[Image.Image] = [preview_image]
+    images: list[Image.Image] = [preview_for_display]
     labels: list[str] = [f"WSI Preview: {preview_png_file.name}"]
     for idx, label in channel_specs:
         images.append(Image.fromarray(stitched_by_channel[idx], mode="L").convert("RGB"))
         channel_label = MODEL_OUTPUT_CHANNEL_LABELS[idx] if idx < len(MODEL_OUTPUT_CHANNEL_LABELS) else label
         labels.append(f"Stitched NPZ: {channel_label}")
 
-    app = _ViewerApp(images, labels, max_dim=max_dim, extract_boxes=extract_boxes)
-    app.run()
+    return _ViewerApp(images, labels, max_dim=max_dim, extract_boxes=extract_boxes)
